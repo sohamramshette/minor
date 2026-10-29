@@ -1,0 +1,317 @@
+import { DemoCommit, DemoBugReport, SentimentTimePoint } from '../types';
+
+export const DEMO_REPOSITORY_INFO = {
+  fullName: 'facebook/react',
+  defaultBranch: 'main',
+  stars: 228400,
+  forks: 46200,
+  openIssues: 840,
+  totalCommitsAnalyzed: 1428,
+  analyzedBranch: 'main',
+  lastScanTimestamp: '2026-10-25 21:40 UTC',
+  datasetLabel: 'Phase 1 Synthetic Benchmark Dataset (SZZ + VADER + RoBERTa Ground Truth)',
+};
+
+export const DEMO_COMMITS: DemoCommit[] = [
+  {
+    id: 'c1',
+    hash: 'a7f3b89e2c1409d582ea847391c01e9d3fa6e412',
+    shortHash: 'a7f3b89',
+    author: 'Alex Rivera',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-24 02:41 AM',
+    timeAgo: '1 day ago',
+    message: 'Quick dirty workaround for race condition in reconciler, hope this doesn\'t break prod again',
+    branch: 'main',
+    churn: {
+      insertions: 342,
+      deletions: 118,
+      filesCount: 9,
+    },
+    sentiment: {
+      score: -0.84,
+      tone: 'frustrated',
+      confidence: 0.94,
+      keywords: ['dirty workaround', 'race condition', 'break prod', 'again'],
+      stressIndicator: 92,
+    },
+    risk: {
+      probability: 0.91,
+      level: 'critical',
+      factors: [
+        'Late night commit (02:41 AM)',
+        'Extreme negative sentiment score (-0.84)',
+        'Touches high-cyclomatic complexity file (ReactFiberWorkLoop.js)',
+        'High code churn (+342 / -118)',
+      ],
+    },
+    isInducingCommitCandidate: true,
+  },
+  {
+    id: 'c2',
+    hash: 'e81a94b3c7042a98ef114502d917ab41280f9831',
+    shortHash: 'e81a94b',
+    author: 'Marcus Vance',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-23 23:18 PM',
+    timeAgo: '2 days ago',
+    message: 'Hotfix: emergency patch for memory leak in event listener dispatch. Temporary hack.',
+    branch: 'main',
+    churn: {
+      insertions: 88,
+      deletions: 42,
+      filesCount: 3,
+    },
+    sentiment: {
+      score: -0.68,
+      tone: 'urgent',
+      confidence: 0.89,
+      keywords: ['emergency patch', 'temporary hack', 'memory leak'],
+      stressIndicator: 84,
+    },
+    risk: {
+      probability: 0.83,
+      level: 'high',
+      factors: [
+        'Urgent stress linguistic indicators',
+        'Keyword match: "temporary hack"',
+        'Off-hours push without secondary review',
+      ],
+    },
+    isInducingCommitCandidate: true,
+  },
+  {
+    id: 'c3',
+    hash: '59c20a1ef8324810dc297e411b0129cf942718da',
+    shortHash: '59c20a1',
+    author: 'Elena Rostova',
+    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-22 14:15 PM',
+    timeAgo: '3 days ago',
+    message: 'Refactor synthetic event pooling with verified benchmark suite and zero regression',
+    branch: 'feature/event-pool',
+    churn: {
+      insertions: 145,
+      deletions: 190,
+      filesCount: 6,
+    },
+    sentiment: {
+      score: 0.72,
+      tone: 'positive',
+      confidence: 0.91,
+      keywords: ['verified benchmark', 'zero regression', 'refactor'],
+      stressIndicator: 18,
+    },
+    risk: {
+      probability: 0.14,
+      level: 'low',
+      factors: [
+        'High test coverage addition (+12 tests)',
+        'Positive sentiment (+0.72)',
+        'Net negative line reduction (-45 lines)',
+      ],
+    },
+    isInducingCommitCandidate: false,
+  },
+  {
+    id: 'c4',
+    hash: '12d847bc01fa8390bb9321484920fe8102a948ec',
+    shortHash: '12d847b',
+    author: 'Devon Miller',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-21 18:30 PM',
+    timeAgo: '4 days ago',
+    message: 'Update TypeScript definition exports for useTransition and useDeferredValue hooks',
+    branch: 'main',
+    churn: {
+      insertions: 54,
+      deletions: 12,
+      filesCount: 2,
+    },
+    sentiment: {
+      score: 0.15,
+      tone: 'neutral',
+      confidence: 0.85,
+      keywords: ['type definitions', 'update hooks'],
+      stressIndicator: 24,
+    },
+    risk: {
+      probability: 0.22,
+      level: 'low',
+      factors: ['Type declaration changes only', 'Isolated scope'],
+    },
+    isInducingCommitCandidate: false,
+  },
+  {
+    id: 'c5',
+    hash: '89104cde78a230198402bcde190a48572019e912',
+    shortHash: '89104cd',
+    author: 'Sarah Chen',
+    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-20 01:12 AM',
+    timeAgo: '5 days ago',
+    message: 'Why does this even happen?? Bypassing state validation to unblock CI build',
+    branch: 'fix/ci-flaky',
+    churn: {
+      insertions: 74,
+      deletions: 62,
+      filesCount: 4,
+    },
+    sentiment: {
+      score: -0.79,
+      tone: 'frustrated',
+      confidence: 0.95,
+      keywords: ['why does this happen', 'bypassing validation', 'unblock CI'],
+      stressIndicator: 88,
+    },
+    risk: {
+      probability: 0.87,
+      level: 'critical',
+      factors: [
+        'Emotional exasperation markers ("??")',
+        'Bypassing validation checks',
+        'Late night commit (01:12 AM)',
+      ],
+    },
+    isInducingCommitCandidate: true,
+  },
+  {
+    id: 'c6',
+    hash: '33e147bc9018429184001d84920fe8102a948412',
+    shortHash: '33e147b',
+    author: 'Alex Rivera',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-19 16:20 PM',
+    timeAgo: '6 days ago',
+    message: 'Add comprehensive concurrent rendering integration tests for Suspense boundaries',
+    branch: 'main',
+    churn: {
+      insertions: 210,
+      deletions: 15,
+      filesCount: 5,
+    },
+    sentiment: {
+      score: 0.65,
+      tone: 'positive',
+      confidence: 0.88,
+      keywords: ['comprehensive', 'integration tests', 'concurrent'],
+      stressIndicator: 20,
+    },
+    risk: {
+      probability: 0.16,
+      level: 'low',
+      factors: ['Test additions only', 'High author domain experience'],
+    },
+    isInducingCommitCandidate: false,
+  },
+  {
+    id: 'c7',
+    hash: '6a4f1092e4781938d0192e48201948572019e099',
+    shortHash: '6a4f109',
+    author: 'Liam O\'Connor',
+    avatar: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=80&auto=format&fit=crop&q=80',
+    date: '2026-10-18 20:05 PM',
+    timeAgo: '7 days ago',
+    message: 'Tweak scheduler priority queue thresholds to suppress random starvation timeouts',
+    branch: 'scheduler-opt',
+    churn: {
+      insertions: 112,
+      deletions: 94,
+      filesCount: 4,
+    },
+    sentiment: {
+      score: -0.42,
+      tone: 'negative',
+      confidence: 0.82,
+      keywords: ['tweak', 'suppress', 'starvation timeouts'],
+      stressIndicator: 62,
+    },
+    risk: {
+      probability: 0.68,
+      level: 'moderate',
+      factors: [
+        'Heuristic parameter tweaking',
+        'Touches concurrency priority logic',
+      ],
+    },
+    isInducingCommitCandidate: true,
+  },
+];
+
+export const DEMO_BUG_REPORTS: DemoBugReport[] = [
+  {
+    id: 'bug-1',
+    ticketId: 'GH-29401',
+    title: 'Severe UI Freeze when unmounting concurrent root during ongoing transition',
+    severity: 'Critical',
+    reportedDate: '2026-10-25',
+    fixedInCommit: 'fix(reconciler): resolve deadlock in root unmount (#29440)',
+    suspectedOriginCommit: 'a7f3b89e2c1409d582ea847391c01e9d3fa6e412',
+    confidenceScore: 0.94,
+    developerSentimentAtOrigin: 'frustrated',
+    summary:
+      'SZZ AST analysis identifies commit a7f3b89 as the introducing origin. The commit message shows severe frustration (-0.84 sentiment) and introduced a quick race-condition bypass at 2:41 AM.',
+  },
+  {
+    id: 'bug-2',
+    ticketId: 'GH-29388',
+    title: 'Memory leak in synthetic event pool under rapid route switches',
+    severity: 'Major',
+    reportedDate: '2026-10-24',
+    fixedInCommit: 'fix(events): clean up detached DOM listener references (#29399)',
+    suspectedOriginCommit: 'e81a94b3c7042a98ef114502d917ab41280f9831',
+    confidenceScore: 0.88,
+    developerSentimentAtOrigin: 'urgent',
+    summary:
+      'Origin commit was authored under emergency pressure ("Hotfix: emergency patch... temporary hack"). The hasty fix failed to release listener closures.',
+  },
+  {
+    id: 'bug-3',
+    ticketId: 'GH-29312',
+    title: 'Inconsistent fallback state rendered when Suspense promise rejects silently',
+    severity: 'Major',
+    reportedDate: '2026-10-21',
+    fixedInCommit: 'fix(suspense): guarantee fallback re-trigger on unhandled rejection',
+    suspectedOriginCommit: '89104cde78a230198402bcde190a48572019e912',
+    confidenceScore: 0.91,
+    developerSentimentAtOrigin: 'frustrated',
+    summary:
+      'Commit 89104cd bypassed state validation to unblock failing CI tests ("Why does this even happen??"), omitting boundary edge-case handlers.',
+  },
+];
+
+export const DEMO_TIMELINE: SentimentTimePoint[] = [
+  { date: 'Oct 12', sentimentScore: 0.42, stressLevel: 28, bugCount: 1, commitCount: 38 },
+  { date: 'Oct 14', sentimentScore: 0.35, stressLevel: 34, bugCount: 2, commitCount: 45 },
+  { date: 'Oct 16', sentimentScore: 0.12, stressLevel: 51, bugCount: 3, commitCount: 62 },
+  { date: 'Oct 18', sentimentScore: -0.22, stressLevel: 68, bugCount: 5, commitCount: 74 },
+  { date: 'Oct 20', sentimentScore: -0.58, stressLevel: 82, bugCount: 9, commitCount: 89 },
+  { date: 'Oct 22', sentimentScore: -0.38, stressLevel: 71, bugCount: 6, commitCount: 68 },
+  { date: 'Oct 24', sentimentScore: -0.74, stressLevel: 91, bugCount: 11, commitCount: 94 },
+  { date: 'Oct 25', sentimentScore: -0.15, stressLevel: 49, bugCount: 4, commitCount: 52 },
+];
+
+export const DEMO_RISK_DISTRIBUTION = [
+  { name: 'Critical Risk (>85%)', value: 86, color: '#ef4444' },
+  { name: 'High Risk (70-85%)', value: 174, color: '#f97316' },
+  { name: 'Moderate Risk (40-70%)', value: 432, color: '#eab308' },
+  { name: 'Low Risk (<40%)', value: 736, color: '#10b981' },
+];
+
+export const DEMO_RADAR_DATA = [
+  { metric: 'Frustration Markers', baseline: 30, current: 84 },
+  { metric: 'Time Urgency Pressure', baseline: 35, current: 78 },
+  { metric: 'Cognitive Churn Load', baseline: 40, current: 72 },
+  { metric: 'Late Night Commits', baseline: 20, current: 68 },
+  { metric: 'Syntactic Complexity', baseline: 45, current: 81 },
+  { metric: 'Expletive / Slang Tokens', baseline: 10, current: 55 },
+];
+
+export const DEMO_METRICS = {
+  totalCommits: 1428,
+  highRiskCommits: 260,
+  correlationScore: 0.76, // Pearson correlation between developer sentiment & bug induction
+  detectedBugOrigins: 42,
+  averageStressIndex: 68.4,
+  mlAccuracy: '87.4% F1-Score',
+};
