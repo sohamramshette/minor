@@ -2,6 +2,7 @@
   "name": "emotion-trace-server",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "description": "Backend API server for EmotionTrace",
   "main": "dist/server.js",
   "scripts": {

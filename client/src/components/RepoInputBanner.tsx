@@ -1,33 +1,73 @@
 import React, { useState } from 'react';
-import { GitBranch, Search, Play, CheckCircle2, AlertCircle, X, Sparkles, Terminal } from 'lucide-react';
+import {
+  GitBranch,
+  Play,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  ExternalLink,
+  Database,
+  ArrowRight,
+} from 'lucide-react';
+import { analyzeRepository, IngestionResult } from '../services/api';
+import { ApiRepository } from '../types';
 
 interface RepoInputBannerProps {
-  onAnalyze?: (repoUrl: string) => void;
+  onAnalyze?: (repoFullName: string) => void;
+  onAnalyzeSuccess?: (result: IngestionResult) => void;
+  isDbConnected?: boolean;
 }
 
-export const RepoInputBanner: React.FC<RepoInputBannerProps> = ({ onAnalyze }) => {
+export const RepoInputBanner: React.FC<RepoInputBannerProps> = ({
+  onAnalyze,
+  onAnalyzeSuccess,
+  isDbConnected = true,
+}) => {
   const [repoUrl, setRepoUrl] = useState('https://github.com/facebook/react');
-  const [isSimulating, setIsSimulating] = useState(false);
-  const [showModal, setShowModal] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [successResult, setSuccessResult] = useState<IngestionResult | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!repoUrl.trim()) return;
+    const trimmed = repoUrl.trim();
+    if (!trimmed) return;
 
-    setIsSimulating(true);
-    setTimeout(() => {
-      setIsSimulating(false);
-      setShowModal(true);
-      if (onAnalyze) onAnalyze(repoUrl);
-    }, 600);
+    setIsAnalyzing(true);
+    setErrorMessage(null);
+    setSuccessResult(null);
+
+    try {
+      const result = await analyzeRepository({
+        url: trimmed,
+        maxCommits: 30,
+      });
+
+      setSuccessResult(result);
+      if (onAnalyzeSuccess) {
+        onAnalyzeSuccess(result);
+      }
+      if (onAnalyze) {
+        onAnalyze(result.repository.fullName);
+      }
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Failed to ingest repository. Ensure your GitHub URL is valid and MongoDB Atlas is reachable.';
+      setErrorMessage(msg);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSelectPreset = (url: string) => {
     setRepoUrl(url);
+    setErrorMessage(null);
   };
 
   return (
-    <>
+    <div className="space-y-3">
       <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/20 p-5 shadow-2xl backdrop-blur-xl">
         {/* Background glow effects */}
         <div className="absolute -top-24 -left-24 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
@@ -37,15 +77,15 @@ export const RepoInputBanner: React.FC<RepoInputBannerProps> = ({ onAnalyze }) =
           <div className="space-y-1 max-w-xl">
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-[11px] font-semibold tracking-wider uppercase bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                Phase 1 Prototype
+                Phase 3 Live Ingestion
               </span>
-              <span className="text-xs text-slate-400">Target Git Repository</span>
+              <span className="text-xs text-slate-400">GitHub REST API + MongoDB Atlas</span>
             </div>
             <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              Analyze Repository Bug Origin & Sentiment
+              Ingest & Analyze GitHub Repository
             </h2>
             <p className="text-xs text-slate-400">
-              Provide any public GitHub repository to examine developer emotional tone and commit-level defect risks.
+              Paste any public GitHub repository URL to retrieve real commit history, code churn stats, and persist them into MongoDB Atlas.
             </p>
           </div>
 
@@ -56,21 +96,25 @@ export const RepoInputBanner: React.FC<RepoInputBannerProps> = ({ onAnalyze }) =
                 <input
                   type="text"
                   value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
+                  onChange={(e) => {
+                    setRepoUrl(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
                   placeholder="https://github.com/owner/repository"
                   className="bg-transparent w-full text-sm text-white placeholder-slate-500 focus:outline-none font-mono"
+                  disabled={isAnalyzing}
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={isSimulating}
-                className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-semibold tracking-wide flex items-center justify-center gap-2 shrink-0 shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed cursor-pointer"
+                disabled={isAnalyzing}
+                className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-semibold tracking-wide flex items-center justify-center gap-2 shrink-0 shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
               >
-                {isSimulating ? (
+                {isAnalyzing ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Analyzing...</span>
+                    <span>Ingesting...</span>
                   </>
                 ) : (
                   <>
@@ -88,10 +132,12 @@ export const RepoInputBanner: React.FC<RepoInputBannerProps> = ({ onAnalyze }) =
                 { name: 'facebook/react', url: 'https://github.com/facebook/react' },
                 { name: 'pallets/flask', url: 'https://github.com/pallets/flask' },
                 { name: 'torvalds/linux', url: 'https://github.com/torvalds/linux' },
+                { name: 'expressjs/express', url: 'https://github.com/expressjs/express' },
               ].map((preset) => (
                 <button
                   key={preset.name}
                   type="button"
+                  disabled={isAnalyzing}
                   onClick={() => handleSelectPreset(preset.url)}
                   className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors shrink-0 ${
                     repoUrl === preset.url
@@ -107,61 +153,65 @@ export const RepoInputBanner: React.FC<RepoInputBannerProps> = ({ onAnalyze }) =
         </div>
       </div>
 
-      {/* Phase 1 Integration Placeholder Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
-          <div className="relative w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-6 text-slate-200">
-            <button
-              onClick={() => setShowModal(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                <Sparkles className="w-6 h-6" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">Repository Queued for Analysis</h3>
-                <p className="text-xs text-indigo-400 font-mono">{repoUrl}</p>
-              </div>
+      {/* Error notification banner */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-200 text-xs flex items-start justify-between gap-3 animate-fade-in shadow-lg">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <span className="font-semibold text-rose-300">Ingestion Failed</span>
+              <p className="text-slate-300">{errorMessage}</p>
             </div>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-rose-400 hover:text-rose-200 p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
-            <div className="space-y-3.5 my-4 text-xs leading-relaxed text-slate-300">
-              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 font-mono text-slate-400 space-y-1">
-                <div className="flex items-center gap-2 text-indigo-300">
-                  <Terminal className="w-3.5 h-3.5" />
-                  <span>Phase 1 Architecture Check</span>
-                </div>
-                <div className="text-[11px] text-emerald-400">✓ Express backend API online (/api/health)</div>
-                <div className="text-[11px] text-emerald-400">✓ Vite React + TypeScript dashboard loaded</div>
-                <div className="text-[11px] text-amber-400">⏳ Live GitHub API & MongoDB ingestion scheduled for Phase 2</div>
-              </div>
-
-              <p>
-                In compliance with <strong>Phase 1 specifications</strong>, this prototype runs against standardized academic baseline demonstration datasets to validate UI responsiveness and visualization pipelines.
-              </p>
-
-              <div className="flex items-start gap-2 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/20 text-indigo-200">
-                <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
-                <span>
-                  The dashboard is currently illustrating the calculated sentiment and defect risk parameters for <strong>{repoUrl.replace('https://github.com/', '')}</strong>.
+      {/* Success notification banner */}
+      {successResult && (
+        <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-900/50 text-emerald-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fade-in shadow-lg">
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-white">
+                  {successResult.repository.fullName}
+                </span>
+                <span className="px-1.5 py-0.2 rounded text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
+                  Stored in MongoDB
                 </span>
               </div>
+              <p className="text-slate-300">
+                Successfully ingested <strong>{successResult.commitsIngested}</strong> new commits (
+                {successResult.totalCommits} total in collection) with code churn differentials and author metadata.
+              </p>
             </div>
+          </div>
 
-            <div className="mt-6 flex justify-end">
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            {onAnalyze && (
               <button
-                onClick={() => setShowModal(false)}
-                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
+                onClick={() => onAnalyze(successResult.repository.fullName)}
+                className="px-3 py-1.5 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 text-xs font-semibold flex items-center gap-1 transition-colors"
               >
-                Explore Dashboard
+                <span>View Repository</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
-            </div>
+            )}
+            <button
+              onClick={() => setSuccessResult(null)}
+              className="text-slate-400 hover:text-slate-200 p-1"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 };

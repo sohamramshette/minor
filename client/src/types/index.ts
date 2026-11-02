@@ -100,6 +100,7 @@ export interface ApiCommit {
     deletions: number;
     filesCount: number;
   };
+  changedFiles?: string[];
   sentiment?: {
     score: number;
     tone: SentimentTone;

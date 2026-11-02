@@ -14,20 +14,30 @@ import {
   CheckCircle2,
   AlertTriangle,
   FolderGit2,
+  ChevronRight,
+  GitCommit,
+  Clock,
+  Layers,
+  Search,
 } from 'lucide-react';
 import { DEMO_REPOSITORY_INFO, DEMO_METRICS } from '../utils/mockData';
 import { DemoNoticeBadge } from '../components/DemoNoticeBadge';
-import { fetchRepositories, registerRepository } from '../services/api';
-import { ApiRepository, BackendHealth } from '../types';
+import { RepoInputBanner } from '../components/RepoInputBanner';
+import { fetchRepositories, fetchRepositoryCommits, registerRepository } from '../services/api';
+import { ApiRepository, ApiCommit, BackendHealth, NavigationTab } from '../types';
 
 interface RepositoryAnalysisPageProps {
   backendHealth?: BackendHealth | null;
+  activeRepoFullName?: string;
   onSelectRepo?: (repoFullName: string) => void;
+  onNavigateTab?: (tab: NavigationTab) => void;
 }
 
 export const RepositoryAnalysisPage: React.FC<RepositoryAnalysisPageProps> = ({
   backendHealth,
+  activeRepoFullName,
   onSelectRepo,
+  onNavigateTab,
 }) => {
   const isDbConnected = backendHealth?.services?.database === 'connected';
   const [viewMode, setViewMode] = useState<'persisted' | 'demo'>(
@@ -35,16 +45,33 @@ export const RepositoryAnalysisPage: React.FC<RepositoryAnalysisPageProps> = ({
   );
 
   const [repositories, setRepositories] = useState<ApiRepository[]>([]);
+  const [selectedRepo, setSelectedRepo] = useState<ApiRepository | null>(null);
+  const [recentCommits, setRecentCommits] = useState<ApiCommit[]>([]);
+  const [isLoadingCommits, setIsLoadingCommits] = useState<boolean>(false);
+  const [repoSearch, setRepoSearch] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isRegistering, setIsRegistering] = useState<boolean>(false);
 
   const loadRepositories = async () => {
     setIsLoading(true);
     setErrorMessage(null);
     try {
       const result = await fetchRepositories();
-      setRepositories(result.items || []);
+      const items = result.items || [];
+      setRepositories(items);
+
+      if (items.length > 0) {
+        let current = items[0];
+        if (activeRepoFullName) {
+          const matched = items.find(
+            (r) => r.fullName.toLowerCase() === activeRepoFullName.toLowerCase()
+          );
+          if (matched) current = matched;
+        }
+        setSelectedRepo(current);
+      } else {
+        setSelectedRepo(null);
+      }
     } catch (err: any) {
       const msg =
         err?.response?.data?.message ||
@@ -63,33 +90,45 @@ export const RepositoryAnalysisPage: React.FC<RepositoryAnalysisPageProps> = ({
     }
   }, [viewMode, isDbConnected]);
 
-  const handleQuickSeedRepo = async () => {
-    setIsRegistering(true);
-    try {
-      await registerRepository({
-        fullName: 'facebook/react',
-        githubUrl: 'https://github.com/facebook/react',
-        owner: 'facebook',
-        name: 'react',
-        defaultBranch: 'main',
-        metadata: {
-          description: 'The library for web and native user interfaces',
-          language: 'JavaScript',
-          stars: 228400,
-          forks: 46200,
-          openIssues: 840,
-        },
-      });
-      await loadRepositories();
-    } catch (err: any) {
-      alert(
-        err?.response?.data?.message ||
-          'Failed to register repository in MongoDB. Ensure database is connected.'
-      );
-    } finally {
-      setIsRegistering(false);
+  // Load preview commits when selected repository changes
+  useEffect(() => {
+    if (selectedRepo && viewMode === 'persisted') {
+      const repoId = selectedRepo.id || (selectedRepo as any)._id;
+      setIsLoadingCommits(true);
+      fetchRepositoryCommits(repoId, { limit: 5 })
+        .then((res) => {
+          setRecentCommits(res.items || []);
+        })
+        .catch(() => {
+          setRecentCommits([]);
+        })
+        .finally(() => {
+          setIsLoadingCommits(false);
+        });
+    }
+  }, [selectedRepo, viewMode]);
+
+  const handleRepoClick = (repo: ApiRepository) => {
+    setSelectedRepo(repo);
+    if (onSelectRepo) {
+      onSelectRepo(repo.fullName);
     }
   };
+
+  const handleIngestionSuccess = async () => {
+    await loadRepositories();
+  };
+
+  const filteredRepos = repositories.filter((r) => {
+    if (!repoSearch.trim()) return true;
+    const term = repoSearch.toLowerCase();
+    return (
+      r.fullName.toLowerCase().includes(term) ||
+      r.owner.toLowerCase().includes(term) ||
+      r.name.toLowerCase().includes(term) ||
+      (r.metadata?.description || '').toLowerCase().includes(term)
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -170,26 +209,15 @@ export const RepositoryAnalysisPage: React.FC<RepositoryAnalysisPageProps> = ({
       {/* ================= PERSISTED MONGODB VIEW ================= */}
       {viewMode === 'persisted' && (
         <div className="space-y-6">
-          {/* Informational banner */}
-          <div className="rounded-2xl bg-slate-900/60 border border-slate-800 p-4 text-xs text-slate-300 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span>
-                Displaying real documents persisted in <strong>MongoDB Atlas</strong> collections.
-                Records reflect live database state.
-              </span>
-            </div>
-            {isDbConnected && (
-              <button
-                onClick={handleQuickSeedRepo}
-                disabled={isRegistering}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-medium transition-all"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>{isRegistering ? 'Registering...' : 'Register Test Repo'}</span>
-              </button>
-            )}
-          </div>
+          {/* Phase 3 GitHub Repository Ingestion Banner */}
+          <RepoInputBanner
+            onAnalyzeSuccess={handleIngestionSuccess}
+            onAnalyze={(name) => {
+              if (onSelectRepo) onSelectRepo(name);
+              loadRepositories();
+            }}
+            isDbConnected={isDbConnected}
+          />
 
           {/* Loading State */}
           {isLoading && (
@@ -234,82 +262,278 @@ export const RepositoryAnalysisPage: React.FC<RepositoryAnalysisPageProps> = ({
               <div className="space-y-1">
                 <h3 className="text-sm font-bold text-white">No Repositories Stored in Database</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  MongoDB Atlas is ready, but no repository documents have been persisted yet. You can register a repository document below.
+                  MongoDB Atlas is ready, but no repository documents have been persisted yet. Paste a GitHub repository URL into the ingestion banner above to retrieve real commits.
                 </p>
               </div>
-              {isDbConnected && (
-                <button
-                  onClick={handleQuickSeedRepo}
-                  disabled={isRegistering}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/20 transition-all inline-flex items-center gap-2"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  <span>{isRegistering ? 'Registering...' : 'Register facebook/react Sample'}</span>
-                </button>
-              )}
             </div>
           )}
 
-          {/* Repository Cards List */}
-          {!isLoading && !errorMessage && repositories.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {repositories.map((repo) => (
-                <div
-                  key={repo.id || repo._id}
-                  className="rounded-2xl bg-slate-900/80 border border-slate-800 p-5 space-y-4 hover:border-slate-700 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-sm font-bold text-white truncate">
-                          {repo.fullName}
-                        </span>
-                        <span className="px-2 py-0.5 rounded text-[10px] font-mono capitalize bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                          {repo.status}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 line-clamp-2">
-                        {repo.metadata?.description || 'No description provided'}
-                      </p>
+          {/* Active Repository Detailed Metadata & Commit Insights */}
+          {!isLoading && !errorMessage && selectedRepo && (
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-gradient-to-r from-slate-900 via-slate-900/90 to-indigo-950/40 border border-indigo-500/30 p-6 shadow-xl space-y-5">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>MongoDB Persisted Record</span>
+                      </span>
+                      <span className="text-xs font-mono uppercase text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20">
+                        Status: {selectedRepo.status}
+                      </span>
                     </div>
 
-                    <a
-                      href={repo.githubUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors shrink-0"
-                    >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                    <h2 className="text-2xl font-extrabold text-white font-mono tracking-tight flex items-center gap-3">
+                      <span>{selectedRepo.fullName}</span>
+                      <a
+                        href={selectedRepo.githubUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-slate-400 hover:text-white p-1 hover:bg-slate-800 rounded transition-colors"
+                        title="Open on GitHub"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                      </a>
+                    </h2>
+
+                    <p className="text-xs text-slate-300 max-w-2xl">
+                      {selectedRepo.metadata?.description || 'No repository description available.'}
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-xs">
-                    <div className="p-2 rounded-lg bg-slate-950/60 text-slate-400">
-                      <span className="block text-[10px] text-slate-500">Stars</span>
-                      <span className="font-mono font-bold text-amber-400">
-                        {(repo.metadata?.stars ?? 0).toLocaleString()}
-                      </span>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+                      <Star className="w-3.5 h-3.5 text-amber-400" />
+                      <span>{(selectedRepo.metadata?.stars ?? 0).toLocaleString()} stars</span>
                     </div>
-                    <div className="p-2 rounded-lg bg-slate-950/60 text-slate-400">
-                      <span className="block text-[10px] text-slate-500">Branch</span>
-                      <span className="font-mono font-bold text-indigo-300">
-                        {repo.defaultBranch || 'main'}
-                      </span>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+                      <GitFork className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{(selectedRepo.metadata?.forks ?? 0).toLocaleString()} forks</span>
                     </div>
-                    <div className="p-2 rounded-lg bg-slate-950/60 text-slate-400">
-                      <span className="block text-[10px] text-slate-500">Language</span>
-                      <span className="font-mono font-bold text-emerald-400">
-                        {repo.metadata?.language || 'JavaScript'}
-                      </span>
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/60 text-xs text-slate-300">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-400" />
+                      <span>{selectedRepo.metadata?.openIssues ?? 0} issues</span>
                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
-                    <span>ID: {(repo.id || repo._id || '').slice(0, 10)}...</span>
-                    <span>Created: {new Date(repo.createdAt).toLocaleDateString()}</span>
                   </div>
                 </div>
-              ))}
+
+                {/* Key Metrics Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-800/80 text-xs">
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <span className="block text-[11px] text-slate-500">Default Branch</span>
+                    <span className="font-mono text-sm font-bold text-indigo-300">
+                      {selectedRepo.defaultBranch || 'main'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <span className="block text-[11px] text-slate-500">Primary Language</span>
+                    <span className="font-mono text-sm font-bold text-emerald-400">
+                      {selectedRepo.metadata?.language || 'JavaScript'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <span className="block text-[11px] text-slate-500">Commits Collected</span>
+                    <span className="font-mono text-sm font-bold text-white">
+                      {(selectedRepo.commitCount ?? recentCommits.length ?? 0)} stored
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <span className="block text-[11px] text-slate-500">Last Ingested</span>
+                    <span className="font-mono text-xs font-semibold text-slate-300">
+                      {selectedRepo.analyzedAt
+                        ? new Date(selectedRepo.analyzedAt).toLocaleDateString()
+                        : 'Recently'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Navigation CTA to Commit Explorer */}
+                {onNavigateTab && (
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-xs text-slate-400">
+                      Explore detailed code churn, diffs, and commit records stored in MongoDB:
+                    </span>
+                    <button
+                      onClick={() => onNavigateTab('commits')}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-1.5"
+                    >
+                      <GitCommit className="w-4 h-4" />
+                      <span>Open in Commit Explorer</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Recent Ingested Commits Preview */}
+              <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <GitCommit className="w-4 h-4 text-indigo-400" />
+                      <span>Recent Commits Persisted for {selectedRepo.name}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Actual records from MongoDB collection &apos;commits&apos;
+                    </p>
+                  </div>
+                  {onNavigateTab && (
+                    <button
+                      onClick={() => onNavigateTab('commits')}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors"
+                    >
+                      <span>View All in Explorer</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {isLoadingCommits && (
+                  <div className="p-6 text-center text-xs text-slate-400">
+                    <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin mx-auto mb-1" />
+                    Loading commit records...
+                  </div>
+                )}
+
+                {!isLoadingCommits && recentCommits.length === 0 && (
+                  <div className="p-6 text-center text-xs text-slate-400">
+                    No commits found for this repository. Try re-analyzing or refreshing.
+                  </div>
+                )}
+
+                {!isLoadingCommits && recentCommits.length > 0 && (
+                  <div className="space-y-2">
+                    {recentCommits.map((commit) => (
+                      <div
+                        key={commit.id || commit._id}
+                        className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-indigo-400">
+                              {commit.shortHash || commit.hash?.substring(0, 7)}
+                            </span>
+                            <span className="font-medium text-white truncate">
+                              {commit.author?.name || 'Unknown'}
+                            </span>
+                            <span className="text-slate-600">•</span>
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              {new Date(commit.authoredDate).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <p className="text-slate-300 truncate font-sans">{commit.message}</p>
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0 text-[11px] font-mono">
+                          <span className="text-emerald-400">+{commit.churn?.insertions ?? 0}</span>
+                          <span className="text-rose-400">-{commit.churn?.deletions ?? 0}</span>
+                          <span className="text-slate-500">
+                            ({commit.churn?.filesCount ?? 0} files)
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Stored Repositories Catalog & Filter */}
+          {!isLoading && !errorMessage && repositories.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Database className="w-4 h-4 text-indigo-400" />
+                  <span>All Persisted Repositories ({repositories.length})</span>
+                </h3>
+
+                <div className="relative w-64">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={repoSearch}
+                    onChange={(e) => setRepoSearch(e.target.value)}
+                    placeholder="Search stored repositories..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white placeholder-slate-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {filteredRepos.map((repo) => {
+                  const isCurrent =
+                    (selectedRepo?.id || (selectedRepo as any)?._id) ===
+                    (repo.id || (repo as any)._id);
+                  return (
+                    <div
+                      key={repo.id || repo._id}
+                      onClick={() => handleRepoClick(repo)}
+                      className={`rounded-2xl border p-5 space-y-4 cursor-pointer transition-all ${
+                        isCurrent
+                          ? 'bg-slate-900 border-indigo-500/50 shadow-xl shadow-indigo-500/10'
+                          : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-bold text-white truncate">
+                              {repo.fullName}
+                            </span>
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono capitalize bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                              {repo.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 line-clamp-2">
+                            {repo.metadata?.description || 'No description provided'}
+                          </p>
+                        </div>
+
+                        <a
+                          href={repo.githubUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors shrink-0"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-xs">
+                        <div className="p-2 rounded-lg bg-slate-950/60 text-slate-400">
+                          <span className="block text-[10px] text-slate-500">Stars</span>
+                          <span className="font-mono font-bold text-amber-400">
+                            {(repo.metadata?.stars ?? 0).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-950/60 text-slate-400">
+                          <span className="block text-[10px] text-slate-500">Branch</span>
+                          <span className="font-mono font-bold text-indigo-300">
+                            {repo.defaultBranch || 'main'}
+                          </span>
+                        </div>
+                        <div className="p-2 rounded-lg bg-slate-950/60 text-slate-400">
+                          <span className="block text-[10px] text-slate-500">Language</span>
+                          <span className="font-mono font-bold text-emerald-400">
+                            {repo.metadata?.language || 'JavaScript'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono">
+                        <span>ID: {(repo.id || repo._id || '').slice(0, 10)}...</span>
+                        <span>Created: {new Date(repo.createdAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

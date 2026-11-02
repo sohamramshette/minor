@@ -13,6 +13,10 @@ import {
   Layers,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
+  CheckCircle2,
+  FileText,
+  User,
 } from 'lucide-react';
 import { DEMO_COMMITS } from '../utils/mockData';
 import { DemoCommit, ApiCommit, ApiRepository, BackendHealth } from '../types';
@@ -22,10 +26,12 @@ import { fetchRepositories, fetchRepositoryCommits } from '../services/api';
 
 interface CommitExplorerPageProps {
   backendHealth?: BackendHealth | null;
+  activeRepoFullName?: string;
 }
 
 export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
   backendHealth,
+  activeRepoFullName,
 }) => {
   const isDbConnected = backendHealth?.services?.database === 'connected';
   const [viewMode, setViewMode] = useState<'persisted' | 'demo'>(
@@ -41,7 +47,9 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
   // MongoDB persisted state
   const [repositories, setRepositories] = useState<ApiRepository[]>([]);
   const [selectedRepoId, setSelectedRepoId] = useState<string>('');
+  const [selectedRepoObj, setSelectedRepoObj] = useState<ApiRepository | null>(null);
   const [persistedCommits, setPersistedCommits] = useState<ApiCommit[]>([]);
+  const [expandedPersistedId, setExpandedPersistedId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalCommitsCount, setTotalCommitsCount] = useState<number>(0);
@@ -53,16 +61,25 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
     if (viewMode === 'persisted' && isDbConnected) {
       fetchRepositories()
         .then((res) => {
-          setRepositories(res.items || []);
-          if (res.items && res.items.length > 0 && !selectedRepoId) {
-            setSelectedRepoId(res.items[0].id || (res.items[0] as any)._id);
+          const items = res.items || [];
+          setRepositories(items);
+          if (items.length > 0) {
+            let initial = items[0];
+            if (activeRepoFullName) {
+              const matched = items.find(
+                (r) => r.fullName.toLowerCase() === activeRepoFullName.toLowerCase()
+              );
+              if (matched) initial = matched;
+            }
+            setSelectedRepoId(initial.id || (initial as any)._id);
+            setSelectedRepoObj(initial);
           }
         })
         .catch(() => {
           setRepositories([]);
         });
     }
-  }, [viewMode, isDbConnected]);
+  }, [viewMode, isDbConnected, activeRepoFullName]);
 
   // Load commits when repository or page changes
   useEffect(() => {
@@ -81,6 +98,9 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
           setPersistedCommits(res.items || []);
           setTotalPages(res.pagination?.totalPages || 1);
           setTotalCommitsCount(res.pagination?.total || 0);
+          if (res.items && res.items.length > 0) {
+            setExpandedPersistedId(res.items[0].id || (res.items[0] as any)._id);
+          }
         })
         .catch((err) => {
           setErrorMessage(
@@ -96,6 +116,10 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
 
   const toggleExpand = (id: string) => {
     setExpandedCommitId(expandedCommitId === id ? null : id);
+  };
+
+  const togglePersistedExpand = (id: string) => {
+    setExpandedPersistedId(expandedPersistedId === id ? null : id);
   };
 
   const filteredDemoCommits = DEMO_COMMITS.filter((commit) => {
@@ -127,6 +151,11 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
           >
             <Database className="w-3.5 h-3.5" />
             <span>MongoDB Commits</span>
+            {totalCommitsCount > 0 && viewMode === 'persisted' && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-500/30 text-indigo-200 font-mono">
+                {totalCommitsCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -171,10 +200,10 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
               <div>
                 <h2 className="text-base font-bold text-white flex items-center gap-2">
                   <Database className="w-5 h-5 text-indigo-400" />
-                  <span>Persisted MongoDB Commit Documents</span>
+                  <span>Real Commit History from MongoDB Atlas</span>
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Real records stored in the &apos;commits&apos; collection with compound indexes preventing duplicates.
+                  Showing commit records, author info, and code churn persisted from GitHub via Octokit REST API.
                 </p>
               </div>
 
@@ -185,10 +214,14 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
                   <select
                     value={selectedRepoId}
                     onChange={(e) => {
-                      setSelectedRepoId(e.target.value);
+                      const id = e.target.value;
+                      setSelectedRepoId(id);
+                      setSelectedRepoObj(
+                        repositories.find((r) => (r.id || (r as any)._id) === id) || null
+                      );
                       setCurrentPage(1);
                     }}
-                    className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none"
+                    className="px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-white focus:outline-none font-mono"
                   >
                     {repositories.map((repo) => (
                       <option key={repo.id || repo._id} value={repo.id || repo._id}>
@@ -206,7 +239,7 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Filter message or author..."
+                  placeholder="Filter by hash, author, or message..."
                   value={searchTerm}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
@@ -245,7 +278,7 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
                   }}
                   className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-200 capitalize"
                 >
-                  <option value="all">All Risk</option>
+                  <option value="all">All Risk Levels</option>
                   <option value="critical">Critical</option>
                   <option value="high">High</option>
                   <option value="moderate">Moderate</option>
@@ -284,74 +317,217 @@ export const CommitExplorerPage: React.FC<CommitExplorerPageProps> = ({
           {isDbConnected && !isLoadingCommits && persistedCommits.length === 0 && (
             <div className="rounded-2xl bg-slate-900/80 border border-slate-800 p-10 text-center space-y-3">
               <GitCommit className="w-8 h-8 text-slate-500 mx-auto" />
-              <h4 className="text-sm font-bold text-white">No Commits in Selected Repository</h4>
+              <h4 className="text-sm font-bold text-white">No Commits Stored in Selected Repository</h4>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">
-                No commit documents match the current repository and filter parameters in MongoDB Atlas.
+                No commit documents match the current repository and filter parameters in MongoDB Atlas. Use the ingestion banner to retrieve commits.
               </p>
             </div>
           )}
 
-          {/* Persisted Commits List */}
+          {/* Persisted Commits List with Accordion Expansion */}
           {isDbConnected && !isLoadingCommits && persistedCommits.length > 0 && (
             <div className="space-y-3">
-              {persistedCommits.map((commit) => (
-                <div
-                  key={commit.id || commit._id}
-                  className="rounded-2xl bg-slate-900/80 border border-slate-800 p-4 space-y-2"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-indigo-400">
-                        {commit.shortHash || commit.hash?.slice(0, 7)}
-                      </span>
-                      <span className="text-xs font-semibold text-white">
-                        {commit.author?.name || 'Unknown Author'}
-                      </span>
-                      <span className="text-slate-600">•</span>
-                      <span className="text-[11px] text-slate-400 font-mono">
-                        {new Date(commit.authoredDate).toLocaleString()}
-                      </span>
+              {persistedCommits.map((commit) => {
+                const isExpanded =
+                  expandedPersistedId === (commit.id || (commit as any)._id);
+                const commitId = commit.id || (commit as any)._id;
+
+                return (
+                  <div
+                    key={commitId}
+                    className={`rounded-2xl border transition-all duration-200 overflow-hidden ${
+                      isExpanded
+                        ? 'bg-slate-900 border-indigo-500/40 shadow-xl shadow-indigo-500/5'
+                        : 'bg-slate-900/70 border-slate-800/80 hover:border-slate-700/80'
+                    }`}
+                  >
+                    <div
+                      onClick={() => togglePersistedExpand(commitId)}
+                      className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none"
+                    >
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        {commit.author?.avatarUrl ? (
+                          <img
+                            src={commit.author.avatarUrl}
+                            alt={commit.author.name}
+                            className="w-8 h-8 rounded-full object-cover shrink-0 mt-0.5 border border-slate-700"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0 mt-0.5 border border-indigo-500/30">
+                            <User className="w-4 h-4" />
+                          </div>
+                        )}
+
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono text-xs font-bold text-indigo-400">
+                              {commit.shortHash || commit.hash?.slice(0, 7)}
+                            </span>
+                            <span className="text-xs font-semibold text-white">
+                              {commit.author?.name || 'Unknown Author'}
+                            </span>
+                            <span className="text-slate-500">•</span>
+                            <span className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
+                              <Clock className="w-3 h-3" />
+                              <span>{new Date(commit.authoredDate).toLocaleString()}</span>
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-200 font-medium truncate">
+                            {commit.message}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
+                        <div className="font-mono text-[11px]">
+                          <span className="text-emerald-400">+{commit.churn?.insertions ?? 0}</span>{' '}
+                          <span className="text-rose-400">-{commit.churn?.deletions ?? 0}</span>
+                        </div>
+
+                        {commit.sentiment?.tone ? (
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[11px] font-medium capitalize ${getSentimentBadgeClasses(
+                              commit.sentiment.tone
+                            )}`}
+                          >
+                            {commit.sentiment.tone}
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700">
+                            Status: {commit.status}
+                          </span>
+                        )}
+
+                        <button
+                          className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+                          aria-label="Expand commit details"
+                        >
+                          {isExpanded ? (
+                            <ChevronUp className="w-4 h-4" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      {commit.sentiment?.tone && (
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize ${getSentimentBadgeClasses(
-                            commit.sentiment.tone
-                          )}`}
-                        >
-                          {commit.sentiment.tone}
-                        </span>
-                      )}
+                    {isExpanded && (
+                      <div className="px-5 pb-5 pt-2 border-t border-slate-800/80 bg-slate-950/40 space-y-4 text-xs animate-fade-in">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {/* Code Churn & File Diff Summary */}
+                          <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-white flex items-center gap-1.5">
+                                <FileText className="w-3.5 h-3.5 text-indigo-400" />
+                                <span>Code Churn & Changed Files</span>
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Total: {commit.churn?.filesCount ?? 0} files
+                              </span>
+                            </div>
 
-                      {commit.bugRisk?.level && (
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-mono capitalize ${getRiskBadgeClasses(
-                            commit.bugRisk.level
-                          )}`}
-                        >
-                          {commit.bugRisk.level}
-                        </span>
-                      )}
-                    </div>
+                            <div className="space-y-1.5 text-slate-300 font-mono text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Insertions (+):</span>
+                                <span className="text-emerald-400 font-semibold">
+                                  +{commit.churn?.insertions ?? 0} lines
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Deletions (-):</span>
+                                <span className="text-rose-400 font-semibold">
+                                  -{commit.churn?.deletions ?? 0} lines
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Target Branch:</span>
+                                <span className="text-indigo-300 font-semibold">
+                                  {commit.branch || 'main'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Files list */}
+                            <div className="pt-2 border-t border-slate-800">
+                              <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1.5 font-semibold">
+                                Modified Files List ({commit.changedFiles?.length ?? 0}):
+                              </span>
+                              {commit.changedFiles && commit.changedFiles.length > 0 ? (
+                                <div className="max-h-32 overflow-y-auto space-y-1 pr-1 font-mono text-[11px]">
+                                  {commit.changedFiles.map((f: string, i: number) => (
+                                    <div
+                                      key={i}
+                                      className="p-1 px-2 rounded bg-slate-950 border border-slate-800/80 text-slate-300 truncate"
+                                      title={f}
+                                    >
+                                      {f}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-[11px] text-slate-500 italic">
+                                  No specific files captured or root commit.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Author & MongoDB Persistence Metadata */}
+                          <div className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-white flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>MongoDB Document Metadata</span>
+                              </span>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                                Phase 3 Ingested
+                              </span>
+                            </div>
+
+                            <div className="space-y-1.5 text-slate-300 font-mono text-[11px]">
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Author Name:</span>
+                                <span className="text-white">{commit.author?.name}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Author Email:</span>
+                                <span className="text-slate-300">{commit.author?.email}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Full Commit SHA:</span>
+                                <span className="text-indigo-400 truncate max-w-[200px]" title={commit.hash}>
+                                  {commit.hash}
+                                </span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-slate-400">Persisted At:</span>
+                                <span className="text-slate-300">
+                                  {new Date(commit.createdAt).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="pt-2 border-t border-slate-800">
+                              <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-1 font-semibold">
+                                Pipeline Status:
+                              </span>
+                              <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400">
+                                Real Git commit extracted from GitHub REST API and stored in MongoDB Atlas. Machine learning sentiment prediction and SZZ bug-origin tracing will process this document in subsequent phases.
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-
-                  <p className="text-xs text-slate-200">{commit.message}</p>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1">
-                    <span>
-                      +{commit.churn?.insertions ?? 0} / -{commit.churn?.deletions ?? 0} lines ({commit.churn?.filesCount ?? 0} files)
-                    </span>
-                    <span>Status: {commit.status}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               {/* Pagination controls */}
               <div className="flex items-center justify-between p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs">
                 <span className="text-slate-400">
                   Page <strong className="text-white">{currentPage}</strong> of{' '}
-                  <strong className="text-white">{totalPages}</strong> ({totalCommitsCount} total commits)
+                  <strong className="text-white">{totalPages}</strong> ({totalCommitsCount} total commits in database)
                 </span>
 
                 <div className="flex items-center gap-2">

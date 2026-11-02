@@ -1,7 +1,7 @@
-# EmotionTrace 🔍⚡
+# EmotionTrace
 
 > **AI-Powered Bug Origin Prediction Using Developer Sentiment and Git History**  
-> *Academic Minor Project — Phase 2: MongoDB Atlas Persistence Layer & REST API*
+> *Academic Minor Project — Phase 3: Real GitHub Repository Integration & Ingestion*
 
 ---
 
@@ -11,7 +11,7 @@
 
 By fusing the classical **Śliwerski-Zimmermann-Zeller (SZZ) algorithm** (which traces bug fixes to inducing commits via AST git-blame analysis) with **Natural Language Processing (NLP)** sentiment analysis (VADER + fine-tuned RoBERTa) performed on commit messages and code review exchanges, EmotionTrace predicts defect-inducing commits before they manifest as critical production incidents.
 
-In **Phase 2**, a complete MongoDB Atlas persistence layer is implemented with Mongoose models, compound indexing, query pagination, and REST API endpoints.
+In **Phase 3**, real GitHub repository ingestion is implemented using **Octokit** and GitHub REST API, persisting repository metadata, commit histories, code churn (additions, deletions, changed files count), and author information into **MongoDB Atlas**.
 
 ---
 
@@ -26,97 +26,46 @@ In **Phase 2**, a complete MongoDB Atlas persistence layer is implemented with M
 | **HTTP Client** | Axios | Frontend-to-backend API communication |
 | **Backend** | Express.js, Node.js, TypeScript | RESTful API server with centralized error handling |
 | **Data Persistence**| **MongoDB Atlas & Mongoose** | Document modeling for repositories, commits, and analysis history |
-| **Git Integration** | Octokit (GitHub REST & GraphQL API) | Commit history, blame, and churn extraction (Phase 3) |
-| **Validation** | Zod & Custom ObjectId Middleware | Runtime schema and ObjectId hex validation |
+| **Git Integration** | **Octokit (GitHub REST API v3)** | Repository metadata, commit history, code churn, and changed file extraction |
+| **Validation** | Zod & Custom ObjectId Middleware | Runtime schema, URL parser, and ObjectId hex validation |
 
 ---
 
-## 🗄️ MongoDB Atlas Setup Guide
+## 🚀 Phase 3: GitHub Ingestion Architecture
 
-### 1. Create a Free MongoDB Atlas Cluster
-1. Navigate to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) and sign in or create an account.
-2. Create a new project named `EmotionTrace`.
-3. Deploy a free **M0 Sandbox** cluster (AWS, GCP, or Azure).
+### Ingestion Workflow
+1. **Repository Submission**: The user submits a GitHub repository URL (e.g. `https://github.com/facebook/react`, `pallets/flask`, or `git@github.com:torvalds/linux.git`).
+2. **URL Normalization**: `parseGitHubUrl` parses and normalizes the input into `{ owner, repo }`, validating GitHub naming constraints and rejecting non-GitHub domains.
+3. **Metadata Fetching**: Octokit queries `octokit.rest.repos.get({ owner, repo })` to extract repository stars, forks, open issues, default branch, primary language, size, topics, and visibility.
+4. **Repository Upsert**: The repository record is upserted into the MongoDB `repositories` collection (`fullName: owner/repo`). If it exists, metadata and default branch are updated; if not, a new document is registered.
+5. **Analysis Run Created**: An `Analysis` record is created with `status: 'in_progress'` and `startedAt: Date.now()`.
+6. **Commit Extraction**: Octokit retrieves recent commit history via `octokit.rest.repos.listCommits` and enriches each commit with detailed diff churn (`stats.additions`, `stats.deletions`, changed files list) via `octokit.rest.repos.getCommit`.
+7. **Duplicate Prevention & Idempotency**: Commits are written using `Commit.bulkWrite` with `updateOne` + `$setOnInsert` and `upsert: true`. Existing commits are preserved and never duplicated (enforced by compound unique index `{ repositoryId: 1, hash: 1 }`).
+8. **Completion Telemetry**: Repository and Analysis records are updated with `status: 'completed'`, execution duration, and total commits count.
 
-### 2. Configure Database Access
-1. In the left navigation, go to **Security** &gt; **Database Access**.
-2. Click **Add New Database User**.
-3. Choose **Password Authentication**:
-   - Username: e.g. `emotiontrace_admin`
-   - Password: generate or choose a secure password (avoid raw special characters or URL-encode them).
-4. Assign the user **Read and write to any database** privileges.
+---
 
-### 3. Configure Network Access (IP Whitelist)
-1. Go to **Security** &gt; **Network Access**.
-2. Click **Add IP Address**.
-3. For development, you can select **Allow Access from Anywhere** (`0.0.0.0/0`) or add your current public IP.
+## ⚙️ Environment Variables
 
-### 4. Obtain the Connection String
-1. Under **Deployment** &gt; **Database**, click **Connect** on your cluster.
-2. Select **Drivers** (Node.js).
-3. Copy the SRV connection URI:
-   ```text
-   mongodb+srv://<username>:<password>@cluster0.xxxxx.mongodb.net/emotiontrace?retryWrites=true&w=majority
-   ```
-4. Replace `<username>` and `<password>` with your credentials, and specify `/emotiontrace` as the database name.
-
-### 5. Set Environment Variables
-Copy and update `.env`:
+Copy `.env.example` to `.env`:
 ```bash
-# On Windows PowerShell:
 Copy-Item server/.env.example server/.env
 Copy-Item .env.example .env
 ```
-Paste your MongoDB Atlas connection string into `server/.env`:
-```ini
-PORT=5000
-NODE_ENV=development
-CLIENT_URL=http://localhost:5173
-MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/emotiontrace?retryWrites=true&w=majority
-```
 
-> **Standalone Development Mode**: If `MONGODB_URI` is omitted or unconfigured, the backend automatically operates in standalone mode, reporting `services.database: "unconfigured"`. When database endpoints are queried without MongoDB, they return structured `503 Service Unavailable` responses without crashing.
+| Variable | Description | Required | Example |
+|---|---|---|---|
+| `PORT` | Backend server port | Optional (default: `5000`) | `5000` |
+| `NODE_ENV` | Runtime environment | Optional (default: `development`) | `development` |
+| `CLIENT_URL` | Frontend client origin (CORS) | Optional (default: `http://localhost:5173`) | `http://localhost:5173` |
+| `MONGODB_URI` | MongoDB Atlas SRV connection string | Required for persistence | `mongodb+srv://user:pass@cluster0.mongodb.net/emotiontrace` |
+| `GITHUB_TOKEN` | GitHub Personal Access Token | Optional (increases rate limit to 5,000/hr) | `ghp_xxxxxxxxxxxxxxxxxxxx` |
 
----
-
-## 📐 Data Models & Schema Design
-
-### 1. `Repository` (`server/src/models/Repository.ts`)
-- `fullName`: Unique string index (e.g. `facebook/react`).
-- `owner`: String index (e.g. `facebook`).
-- `name`: String (e.g. `react`).
-- `githubUrl`: String.
-- `defaultBranch`: String (default `main`).
-- `metadata`: Nested object containing `description`, `language`, `stars`, `forks`, `openIssues`, `sizeKb`, `topics`, `isPrivate`.
-- `status`: `'idle' | 'pending' | 'analyzing' | 'completed' | 'failed'`.
-- `analyzedAt`: Date.
-- `timestamps`: `createdAt`, `updatedAt`.
-
-### 2. `Commit` (`server/src/models/Commit.ts`)
-- `repositoryId`: ObjectId referencing `Repository` (indexed).
-- `hash`: Commit SHA (indexed).
-- `shortHash`: 7-character prefix.
-- `message`: Commit commit message.
-- `author`: Nested object `{ name, email, date, avatarUrl }`.
-- `authoredDate`: Date (indexed for time-series sorting).
-- `churn`: Code churn metrics `{ insertions, deletions, filesCount }`.
-- `sentiment`: Affective metrics `{ score, tone, confidence, keywords, stressIndicator }`.
-- `bugRisk`: Fault metrics `{ probability, level, factors }`.
-- `isInducingCandidate`: Boolean flag (indexed).
-- `status`: `'pending' | 'analyzed' | 'skipped'`.
-- **Compound Unique Index**: `{ repositoryId: 1, hash: 1 }` strictly enforces that no duplicate commits can exist within the same repository.
-
-### 3. `Analysis` / `AnalysisHistory` (`server/src/models/Analysis.ts`)
-- `repositoryId`: ObjectId referencing `Repository`.
-- `status`: `'pending' | 'in_progress' | 'completed' | 'failed'`.
-- `branch`: Branch analyzed.
-- `startedAt`, `completedAt`, `durationMs`.
-- `summaryMetrics`: Aggregates `{ totalCommits, highRiskCommits, averageStressIndex, correlationScore, detectedBugOrigins, mlAccuracy }`.
-- `error`: Error traceback if failed.
+> **Rate Limit Management**: Without `GITHUB_TOKEN`, GitHub limits unauthenticated requests to 60 requests/hour per IP. Setting a personal access token raises the threshold to 5,000 requests/hour.
 
 ---
 
-## 🌐 Phase 2 REST API Endpoints
+## 📡 REST API Endpoints
 
 All responses follow a consistent JSON envelope:
 ```json
@@ -124,16 +73,17 @@ All responses follow a consistent JSON envelope:
   "success": true,
   "message": "...",
   "data": { ... },
-  "timestamp": "2026-10-26T02:07:29.358Z"
+  "timestamp": "2026-11-02T10:00:00.000Z"
 }
 ```
 
 | Method | Endpoint | Description | Validation / Query Params |
 |---|---|---|---|
 | `GET` | `/api/health` | Live system health and MongoDB telemetry | Returns uptime, memory, and database status |
+| `POST`| `/api/repositories/analyze` | **Ingest real GitHub repository & commits** | Body: `{ url: string, branch?: string, maxCommits?: number }` |
 | `GET` | `/api/repositories` | List stored repositories | Supports `page`, `limit`, `status`, `search` |
-| `POST`| `/api/repositories` | Register a new repository | Validates body; rejects duplicates (409) |
-| `GET` | `/api/repositories/:id` | Get repository details | Validates 24-hex ObjectId (400 on invalid) |
+| `POST`| `/api/repositories` | Register a new repository document | Validates body; rejects duplicates (409) |
+| `GET` | `/api/repositories/:id` | Get repository details and commit count | Validates 24-hex ObjectId (400 on invalid) |
 | `GET` | `/api/repositories/:id/commits` | Get paginated commits for repository | Supports `page`, `limit`, `riskLevel`, `sentimentTone`, `search` |
 | `GET` | `/api/analyses` | List historical analysis runs | Supports `repositoryId`, `status`, `page`, `limit` |
 | `POST`| `/api/analyses` | Record a new analysis execution | Validates repository existence |
@@ -145,11 +95,11 @@ All responses follow a consistent JSON envelope:
 
 Execute all unit and integration test suites:
 ```bash
-npm run test --workspace=server
+npm run test
 ```
 
-### Test Coverage (23 Passing Tests across 3 Suites)
-1. **`health.test.ts`**: Verifies root metadata, Phase 2 health payload, memory statistics, and 404 route handling.
+### Test Coverage (38 Passing Tests across 4 Suites)
+1. **`health.test.ts`**: Verifies root metadata, Phase 3 health payload, memory statistics, and 404 route handling.
 2. **`dbUnavailable.test.ts`**: Verifies that when MongoDB is disconnected or unconfigured, the API returns graceful HTTP 503 errors and never crashes.
 3. **`dbPersistence.test.ts`**: Runs against in-memory MongoDB to verify:
    - Real MongoDB connection establishment.
@@ -161,10 +111,19 @@ npm run test --workspace=server
    - Hexadecimal ObjectId validation (HTTP 400 Bad Request on invalid format).
    - 404 Not Found handling on nonexistent ObjectIds.
    - Analysis run recording, listing with population, and detail retrieval.
+4. **`githubIngestion.test.ts`**:
+   - URL parsing: HTTPS, HTTP, www, trailing slashes, `.git`, shorthand `owner/repo`, and SSH format.
+   - URL rejection: non-GitHub domains, malformed strings, and empty input.
+   - Input validation: missing `url` (400) and invalid format (400).
+   - End-to-end ingestion: metadata extraction, code churn, author details, and MongoDB persistence.
+   - Duplicate prevention & idempotency: re-analyzing the same repository stores 0 duplicate commits.
+   - Error handling: GitHub 404 (Not Found) and GitHub 403 (Rate Limit Exceeded).
+   - Edge cases: repositories with 0 commits handled cleanly.
+   - Pagination and search across persisted commits.
 
 ---
 
-## 🏃 Running the Application
+## 💻 Running the Application
 
 ```bash
 # Run both Frontend Dashboard and Backend API concurrently:
@@ -184,11 +143,11 @@ npm run build
 
 ---
 
-## 🔮 Phase 3 Roadmap
+## 🔮 Phase 4 Roadmap
 
-1. **Octokit Live Ingestion:** Connect GitHub Personal Access Token to ingest real commit trees, PR comments, and blame logs directly into MongoDB collections.
-2. **RoBERTa / VADER NLP Pipeline:** Live inference pipeline using fine-tuned transformer weights for software engineering sentiment classification.
-3. **AST Git Blame SZZ Engine:** Implement SZZ commit tracing to automatically pinpoint bug-introducing changes.
+1. **RoBERTa / VADER NLP Pipeline:** Sentiment scoring on ingested commit messages and developer issue discussions.
+2. **AST Git Blame SZZ Engine:** Identify bug-introducing commit candidates using SZZ algorithm AST diff tracing.
+3. **Cross-Correlation ML Model:** Train Random Forest and XGBoost classifiers on affective cues + code churn to predict defect probability.
 
 ---
 
@@ -196,5 +155,3 @@ npm run build
 
 Developed as an Academic Minor Engineering Project (2026).  
 Licensed under the [MIT License](LICENSE).
-#   m i n o r  
- 

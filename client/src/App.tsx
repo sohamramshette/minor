@@ -38,11 +38,16 @@ export const App: React.FC = () => {
       {currentTab === 'repository' && (
         <RepositoryAnalysisPage
           backendHealth={health}
+          activeRepoFullName={activeRepo}
           onSelectRepo={handleSelectRepo}
+          onNavigateTab={setCurrentTab}
         />
       )}
       {currentTab === 'commits' && (
-        <CommitExplorerPage backendHealth={health} />
+        <CommitExplorerPage
+          backendHealth={health}
+          activeRepoFullName={activeRepo}
+        />
       )}
       {currentTab === 'risk' && <RiskAnalysisPage />}
       {currentTab === 'sentiment' && <SentimentAnalysisPage />}

@@ -19,7 +19,7 @@ export function getHealthStatus(req: Request, res: Response): void {
     status: isDegraded ? 'degraded' : 'ok',
     name: 'EmotionTrace Backend API',
     version: '1.0.0',
-    phase: 'Phase 2 - MongoDB Atlas Integration',
+    phase: 'Phase 3 - GitHub Repository Ingestion',
     uptimeSeconds: Math.floor((Date.now() - startTime) / 1000),
     environment: config.nodeEnv,
     services: {

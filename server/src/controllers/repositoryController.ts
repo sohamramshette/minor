@@ -2,8 +2,18 @@ import { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import { Repository } from '../models/Repository.js';
 import { Commit } from '../models/Commit.js';
+import { Analysis } from '../models/Analysis.js';
 import { ApiResponse } from '../utils/apiResponse.js';
 import { PaginatedResponse } from '../types/index.js';
+import {
+  parseGitHubUrl,
+  fetchRepositoryMetadata,
+  fetchRepositoryCommits,
+  GitHubError,
+  GitHubNotFoundError,
+  GitHubRateLimitError,
+  GitHubAuthError,
+} from '../services/githubService.js';
 
 export async function listRepositories(
   req: Request,
@@ -222,6 +232,215 @@ export async function createRepository(
       ApiResponse.error(res, 'Repository with this name already exists.', 409);
       return;
     }
+    next(error);
+  }
+}
+
+/**
+ * Phase 3: Analyze and ingest real GitHub repository metadata and commits into MongoDB.
+ * POST /api/repositories/analyze
+ */
+export async function analyzeRepository(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { url, branch, maxCommits } = req.body;
+
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      ApiResponse.error(res, 'GitHub repository URL is required.', 400);
+      return;
+    }
+
+    const parsed = parseGitHubUrl(url);
+    if (!parsed) {
+      ApiResponse.error(
+        res,
+        `Invalid GitHub repository URL format: '${url}'. Expected format like 'https://github.com/owner/repo' or 'owner/repo'.`,
+        400
+      );
+      return;
+    }
+
+    const { owner, repo } = parsed;
+    const fullName = `${owner}/${repo}`.toLowerCase();
+    const targetBranch = branch && typeof branch === 'string' ? branch.trim() : undefined;
+    const limit = Math.min(100, Math.max(1, parseInt(maxCommits as string, 10) || 30));
+
+    // 1. Fetch GitHub metadata
+    let metadata;
+    try {
+      metadata = await fetchRepositoryMetadata(owner, repo);
+    } catch (githubErr: any) {
+      if (githubErr instanceof GitHubNotFoundError) {
+        ApiResponse.error(res, githubErr.message, 404);
+        return;
+      }
+      if (githubErr instanceof GitHubRateLimitError) {
+        ApiResponse.error(res, githubErr.message, 403);
+        return;
+      }
+      if (githubErr instanceof GitHubAuthError) {
+        ApiResponse.error(res, githubErr.message, 401);
+        return;
+      }
+      if (githubErr instanceof GitHubError) {
+        ApiResponse.error(res, githubErr.message, githubErr.statusCode);
+        return;
+      }
+      throw githubErr;
+    }
+
+    // 2. Find or register repository in MongoDB
+    let repository = await Repository.findOne({ fullName });
+
+    if (repository) {
+      repository.githubUrl = metadata.githubUrl;
+      repository.owner = metadata.owner;
+      repository.name = metadata.name;
+      repository.defaultBranch = targetBranch || metadata.defaultBranch || repository.defaultBranch;
+      repository.metadata = {
+        description: metadata.description,
+        language: metadata.language,
+        stars: metadata.stars,
+        forks: metadata.forks,
+        openIssues: metadata.openIssues,
+        sizeKb: metadata.sizeKb,
+        topics: metadata.topics,
+        isPrivate: metadata.isPrivate,
+      };
+      repository.status = 'analyzing';
+      repository.lastError = undefined;
+      await repository.save();
+    } else {
+      repository = await Repository.create({
+        fullName,
+        githubUrl: metadata.githubUrl,
+        owner: metadata.owner,
+        name: metadata.name,
+        defaultBranch: targetBranch || metadata.defaultBranch || 'main',
+        metadata: {
+          description: metadata.description,
+          language: metadata.language,
+          stars: metadata.stars,
+          forks: metadata.forks,
+          openIssues: metadata.openIssues,
+          sizeKb: metadata.sizeKb,
+          topics: metadata.topics,
+          isPrivate: metadata.isPrivate,
+        },
+        status: 'analyzing',
+      });
+    }
+
+    // 3. Register Analysis Run
+    const analysis = await Analysis.create({
+      repositoryId: repository._id,
+      status: 'in_progress',
+      branch: repository.defaultBranch,
+      triggeredBy: 'user',
+      startedAt: new Date(),
+    });
+
+    // 4. Retrieve Commits from GitHub and Persist in MongoDB
+    try {
+      const commitItems = await fetchRepositoryCommits(owner, repo, {
+        perPage: limit,
+        branch: repository.defaultBranch,
+      });
+
+      let newlyIngestedCount = 0;
+
+      if (commitItems.length > 0) {
+        const bulkOps = commitItems.map((c) => ({
+          updateOne: {
+            filter: {
+              repositoryId: repository._id,
+              hash: c.hash.toLowerCase(),
+            },
+            update: {
+              $setOnInsert: {
+                repositoryId: repository._id,
+                hash: c.hash.toLowerCase(),
+                shortHash: c.shortHash.toLowerCase(),
+                message: c.message,
+                author: c.author,
+                authoredDate: c.authoredDate,
+                branch: c.branch || repository.defaultBranch,
+                churn: c.churn,
+                changedFiles: c.changedFiles,
+                status: 'pending',
+                isInducingCandidate: false,
+              },
+            },
+            upsert: true,
+          },
+        }));
+
+        const bulkResult = await Commit.bulkWrite(bulkOps, { ordered: false });
+        newlyIngestedCount = bulkResult.upsertedCount;
+      }
+
+      const totalRepoCommits = await Commit.countDocuments({ repositoryId: repository._id });
+
+      // Mark repository analysis completed
+      repository.status = 'completed';
+      repository.analyzedAt = new Date();
+      repository.lastError = undefined;
+      await repository.save();
+
+      // Mark analysis completed
+      const completedAt = new Date();
+      analysis.status = 'completed';
+      analysis.completedAt = completedAt;
+      analysis.durationMs = completedAt.getTime() - analysis.startedAt.getTime();
+      analysis.summaryMetrics = {
+        totalCommits: totalRepoCommits,
+        highRiskCommits: 0,
+        averageStressIndex: 0,
+        correlationScore: 0,
+        detectedBugOrigins: 0,
+      };
+      await analysis.save();
+
+      ApiResponse.success(
+        res,
+        {
+          repository,
+          analysis,
+          commitsIngested: newlyIngestedCount,
+          totalCommits: totalRepoCommits,
+          batchSize: commitItems.length,
+        },
+        `Repository '${repository.fullName}' ingested successfully (${newlyIngestedCount} new commits stored, ${totalRepoCommits} total in database).`,
+        200
+      );
+    } catch (ingestionErr: any) {
+      repository.status = 'failed';
+      repository.lastError = ingestionErr.message;
+      await repository.save();
+
+      analysis.status = 'failed';
+      analysis.error = ingestionErr.message;
+      await analysis.save();
+
+      if (ingestionErr instanceof GitHubRateLimitError) {
+        ApiResponse.error(res, ingestionErr.message, 403);
+        return;
+      }
+      if (ingestionErr instanceof GitHubNotFoundError) {
+        ApiResponse.error(res, ingestionErr.message, 404);
+        return;
+      }
+      if (ingestionErr instanceof GitHubError) {
+        ApiResponse.error(res, ingestionErr.message, ingestionErr.statusCode);
+        return;
+      }
+
+      throw ingestionErr;
+    }
+  } catch (error) {
     next(error);
   }
 }

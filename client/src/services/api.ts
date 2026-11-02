@@ -9,7 +9,7 @@ import {
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 8000,
+  timeout: 30000, // Ingestion might take several seconds for GitHub API calls
   headers: {
     'Content-Type': 'application/json',
   },
@@ -80,6 +80,26 @@ export async function registerRepository(data: {
   metadata?: Record<string, any>;
 }): Promise<ApiRepository> {
   const response = await api.post('/repositories', data);
+  return response.data.data;
+}
+
+export interface IngestionResult {
+  repository: ApiRepository;
+  analysis: ApiAnalysis;
+  commitsIngested: number;
+  totalCommits: number;
+  batchSize: number;
+}
+
+/**
+ * Phase 3: Initiate real GitHub repository metadata and commits ingestion.
+ */
+export async function analyzeRepository(data: {
+  url: string;
+  branch?: string;
+  maxCommits?: number;
+}): Promise<IngestionResult> {
+  const response = await api.post('/repositories/analyze', data);
   return response.data.data;
 }
 
